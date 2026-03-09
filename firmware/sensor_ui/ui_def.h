@@ -1,8 +1,10 @@
 #ifndef UI_DEF_H
 #define UI_DEF_H
 
-#define UI_SCREEN_W 320
-#define UI_SCREEN_H 240
+#include "hw_def.h"
+
+#define UI_SCREEN_W LCD_WIDTH
+#define UI_SCREEN_H LCD_HEIGHT
 
 // ui
 #define MIN_MARGIN_OF_ANGLE     0.0011f                             // 0 ~ 90도 사이, 몇도부터 평행하다고 정할지

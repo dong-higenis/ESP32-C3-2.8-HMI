@@ -1,19 +1,19 @@
 
 #include <Arduino.h>
-#include <TFT_eSPI.h> // adafruit의 overhead로 인한 spi라이브러리 교체
+#include "lib/TFT_eSPI/TFT_eSPI.h" // adafruit의 overhead로 인한 spi라이브러리 교체
+
+#include "hw_def.h"
 
 #include "ui_draw.h" 
 
+/**
+ * @note 업로드 환경
+ * 
+ *   esp32 by Espressif Systems - ver 2.0.10
+ */
+
 static void sensorTask(void);
 static void parseFrame(char *s);
-
-/**  
- * @brief h/w 설정
- */
-// spi 핀 설정은 TFT_eSPI 라이브러리 폴더 내, User_Setup.h에서 진행
-#define LCD_BACKLIGHT 1
-#define SENSOR_RX 18
-#define SENSOR_TX 19 
 
 /**
  * @brief s/w 설정
@@ -42,6 +42,9 @@ void setup()
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
+  
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
 
   pinMode(LCD_BACKLIGHT,OUTPUT); // 백라이트 ON
   digitalWrite(LCD_BACKLIGHT,HIGH);
@@ -50,7 +53,7 @@ void setup()
 
   display.begin();
   display.setRotation(1); // 가로 모드
-  
+
   uiInit(&display); // display 객체 ui에게 넘겨주기
 }
 

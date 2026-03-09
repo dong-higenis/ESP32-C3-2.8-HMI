@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <TFT_eSPI.h>
+#include "lib/TFT_eSPI/TFT_eSPI.h"
 
 #include "ui_def.h"
 

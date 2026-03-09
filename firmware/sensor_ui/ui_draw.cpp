@@ -2,7 +2,7 @@
 #include "font.h"
 #include <math.h>
 #include <string.h>
-#include <TFT_eSPI.h>
+#include "lib/TFT_eSPI/TFT_eSPI.h"
 
 /**
  * @brief 모든 UI 요소는 단일 프레임버퍼(Canvas)에서 그려진 뒤 한 번에 LCD로 전송
@@ -36,7 +36,7 @@ static void uiFrameBufferInit(void)
   }
 
   // 단색 조합으로 UI를 구성할 예정이므로, 8비트로 설정한다.
-  canvas.frambuffer->setColorDepth(8);
+  canvas.frambuffer->setColorDepth(16);
 
   // 해상도에 맞는 크기의 프레임 버퍼를 생성한다.
   if (canvas.frambuffer->createSprite(UI_SCREEN_W, UI_SCREEN_H) == nullptr)
