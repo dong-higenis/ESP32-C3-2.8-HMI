@@ -333,9 +333,10 @@ static void uiDrawYBar(int offset_y)
 void uiDrawRoundBox(TFT_eSPI* target, int x, int y, int w, int h) 
 {
   const uint8_t r = GUIDE_BAR_EDGE_RADIUS;
-  target->drawRoundRect(x, y, w, h, r, OUT_LINE_COLOR_BLUE);
-  target->fillRoundRect(x + 1, y + 1, w - 2, h - 2, r - 1, FILL_COLOR);
+  target->fillRoundRect(x, y, w, h, r, OUT_LINE_COLOR_BLUE);
+  target->fillRoundRect(x + 2, y + 2, w - 4, h - 4, r - 2, FILL_COLOR);
 }
+
 
 void uiDrawDashedLine(TFT_eSPI* target, int start_x, int start_y, int end_x, int end_y, int dash_len, int gap_len, uint16_t color) 
 {
