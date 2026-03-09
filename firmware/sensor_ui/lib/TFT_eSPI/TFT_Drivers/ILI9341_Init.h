@@ -42,18 +42,35 @@
   writedata(0x00);
   writedata(0x00);
 
-  writecommand(ILI9341_PWCTR1);    //Power control
-  writedata(0x23);   //VRH[5:0]
+  writecommand(ILI9341_PWCTR1);
+#if _USE_ER_TFT028A2_4
+  writedata(0x10);
+#else
+  writedata(0x23);
+#endif
 
-  writecommand(ILI9341_PWCTR2);    //Power control
-  writedata(0x10);   //SAP[2:0];BT[3:0]
+  writecommand(ILI9341_PWCTR2);
+#if _USE_ER_TFT028A2_4
+  writedata(0x00);
+#else
+  writedata(0x10);
+#endif
 
-  writecommand(ILI9341_VMCTR1);    //VCM control
+  writecommand(ILI9341_VMCTR1);
+#if _USE_ER_TFT028A2_4
+  writedata(0x30);
+  writedata(0x30);
+#else
   writedata(0x3e);
   writedata(0x28);
+#endif
 
-  writecommand(ILI9341_VMCTR2);    //VCM control2
-  writedata(0x86);  //--
+  writecommand(ILI9341_VMCTR2);
+#if _USE_ER_TFT028A2_4
+  writedata(0xB7);
+#else
+  writedata(0x86);
+#endif
 
   writecommand(ILI9341_MADCTL);    // Memory Access Control
 #ifdef M5STACK

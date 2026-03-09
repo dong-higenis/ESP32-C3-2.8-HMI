@@ -50,7 +50,7 @@ void setup()
   digitalWrite(LCD_BACKLIGHT,HIGH);
   
   Serial1.begin(9600, SERIAL_8N1, SENSOR_RX, SENSOR_TX); // 센서
-
+  
   display.begin();
   display.setRotation(1); // 가로 모드
 
