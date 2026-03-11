@@ -1,3 +1,5 @@
+#ifndef HW_DEF_H
+#define HW_DEF_H
 
 /**  
  * @brief h/w 설정
@@ -30,3 +32,30 @@
 #define SENSOR_TX 18 
 
 #define LED_PIN   10
+
+#define BTN_PIN   2
+
+/**
+ * @brief 버튼 분압 저항 
+ */
+#define RESISTOR_PULLUP_VALUE     10000.0f 
+
+#define RESIST_S1_R2_VALUE        0.0f
+#define RESIST_S2_R2_VALUE        10000.0f
+#define RESIST_S3_R2_VALUE        20000.0f
+#define RESIST_S4_R2_VALUE        30000.0f
+#define RESIST_RELEASED_R2_VALUE  40000.0f
+
+#define REFERENCE_MILLI_VOLTAGE   3300.0f
+
+typedef enum
+{
+  BTN_NONE = 0,
+  BTN_S1,
+  BTN_S2,
+  BTN_S3,
+  BTN_S4,
+  BUTTON_PIN_MAX,
+} Button_t;
+
+#endif

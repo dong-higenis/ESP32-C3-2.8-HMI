@@ -20,8 +20,9 @@ static void parseFrame(char *s);
  */ 
 #define RX_BUF_SIZE 64 // 센서 데이터 버퍼
 
-#define UI_DRAW_PERIOD 30 // LCD UI draw 주기
-#define UART_TX_PERIOD 100 // uart 송신 주기
+#define UI_DRAW_PERIOD      30     // LCD UI draw 주기
+#define BUTTON_READ_PERIOD  30     // 버튼 read 주기
+#define UART_TX_PERIOD      100    // uart 송신 주기
 
 #define USE_TEST 1 // 테스트 케이스 사용 여부
 
@@ -48,7 +49,7 @@ void setup()
 
   pinMode(LCD_BACKLIGHT,OUTPUT); // 백라이트 ON
   digitalWrite(LCD_BACKLIGHT,HIGH);
-  
+
   Serial1.begin(9600, SERIAL_8N1, SENSOR_RX, SENSOR_TX); // 센서
   
   display.begin();
@@ -82,6 +83,28 @@ void loop()
     pre_draw = millis();
 
     uiDraw(filtered_x, filtered_y);
+  }
+
+  static uint32_t pre_button;
+
+  if (millis() - pre_button > BUTTON_READ_PERIOD)
+  {
+    Button_t button = readButton();
+
+  #if USE_TEST
+    switch (button)
+    {
+      case BTN_NONE:
+        break;
+      
+      default:
+        Serial.printf("button [%d] pressed\n", button);
+        break;
+    }
+    
+  #endif
+
+    pre_button = millis();
   }
 }
 
@@ -142,3 +165,28 @@ static void parseFrame(char *s)
   sensor_y = atof(p_y + 1); // Y이후부터 값을 float으로 파싱
 }
 
+/**
+ * @brief 버튼 전압 값(mv) 읽기
+ */
+static Button_t readButton(void)
+{
+  uint32_t sensing_voltage = analogReadMilliVolts(BTN_PIN);  // 캘리브레이션된 mV 값
+
+  // 분압 공식: mV = 3300 * R2 / (R1 + R2)
+  float s1_mv = 0;
+  float s2_mv = REFERENCE_MILLI_VOLTAGE * RESIST_S2_R2_VALUE / (RESISTOR_PULLUP_VALUE + RESIST_S2_R2_VALUE);
+  float s3_mv = REFERENCE_MILLI_VOLTAGE * RESIST_S3_R2_VALUE / (RESISTOR_PULLUP_VALUE + RESIST_S3_R2_VALUE);
+  float s4_mv = REFERENCE_MILLI_VOLTAGE * RESIST_S4_R2_VALUE / (RESISTOR_PULLUP_VALUE + RESIST_S4_R2_VALUE);
+  float released_mv = REFERENCE_MILLI_VOLTAGE * RESIST_RELEASED_R2_VALUE / (RESISTOR_PULLUP_VALUE + RESIST_RELEASED_R2_VALUE);
+
+  if (sensing_voltage < (uint32_t)(s1_mv + s2_mv) / 2)
+    return BTN_S1;    
+  else if (sensing_voltage < (uint32_t)(s2_mv + s3_mv) / 2)   
+    return BTN_S2;
+  else if (sensing_voltage < (uint32_t)(s3_mv + s4_mv) / 2)  
+    return BTN_S3;
+  else if (sensing_voltage < (uint32_t)(s4_mv + released_mv) / 2)
+    return BTN_S4;
+
+  return BTN_NONE;
+}
