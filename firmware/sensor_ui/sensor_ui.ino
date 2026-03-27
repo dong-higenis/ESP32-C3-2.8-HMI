@@ -31,6 +31,7 @@ static void lcdSleep(TFT_eSPI &disp);
 #define UART_TX_PERIOD      100    // uart 송신 주기
 
 #define USE_TEST 1 // 테스트 케이스 사용 여부
+#define USE_SLEEP 0 // sleep 모드 사용 여부
 
 char sensor_rx_buffer[RX_BUF_SIZE]; // uart로 받는 값 저장
 uint8_t sensor_rx_index = 0; // uart 버퍼 관리용 인덱스
@@ -66,13 +67,14 @@ void setup()
   pinMode(LCD_BACKLIGHT, OUTPUT);
   digitalWrite(LCD_BACKLIGHT, LOW);
 
+  pinMode(BATT_CHARGE_DETECT, INPUT);
+
   Serial1.begin(9600, SERIAL_8N1, SENSOR_RX, SENSOR_TX); // 센서
   
   display.begin();
   display.setRotation(1); // 가로 모드
 
   digitalWrite(LCD_BACKLIGHT, HIGH); // 백 라이트 ON
-
   uiInit(&display); // display 객체 ui에게 넘겨주기
 }
 
@@ -129,9 +131,23 @@ void loop()
     pre_button = millis();
   }
 
+  static uint32_t pre_bat;
+
+  if (millis() - pre_bat > 1000)
+  {
+    pre_bat = millis();
+
+    int8_t percent = (int8_t)readBatteryVoltage();
+    bool charging = (digitalRead(BATT_CHARGE_DETECT) == LOW);
+
+    uiSetBattPercent(percent, charging);
+  }
+
   if (millis() - pre_sleep > SLEEP_TIMEOUT_MS)
   {
-    enterDeepSleep();
+    #if USE_SLEEP
+      enterDeepSleep();
+    #endif
   }
 }
 
@@ -249,7 +265,7 @@ static void enterDeepSleep(void)
   pinMode(BTN_PIN, INPUT_PULLUP);
   delay(10);
   
-  // BTN_PIN이 LOW가 되면 Deep Sleep에서 깨어나도록 wake-up 조건을   등록한다.
+  // BTN_PIN이 LOW가 되면 Deep Sleep에서 깨어나도록 wake-up 조건을 등록한다.
   esp_deep_sleep_enable_gpio_wakeup(BIT(BTN_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
   esp_deep_sleep_start();
 }   
@@ -259,8 +275,14 @@ static void enterDeepSleep(void)
  */
 static float readBatteryVoltage(void)
 {
-  float voltage = (float)analogReadMilliVolts(BATT_CURRENT_VOLT) / 1000.0f * BAT_DIVIDER_RATIO;
-  
+  // 분압비가 적용된 현재 ADC입력 전압에서 분압비를 역산하여 실제 배터리 전압을 추출해낸다.
+  int raw_mv = analogReadMilliVolts(BATT_CURRENT_VOLT);
+  float before_cal = (float)raw_mv / 1000.0f * BAT_DIVIDER_RATIO;
+  float voltage = before_cal + BAT_CALIBRATION_OFFSET;
+
+  Serial.printf("[BAT DEBUG] raw=%dmV, ratio=%.4f, before_cal=%.3fV, after_cal=%.3fV\n",
+                raw_mv, BAT_DIVIDER_RATIO, before_cal, voltage);
+
   // 공식: 구간 하한% + (현재전압 - 구간하한V) / (구간상한V - 구간하한V) * 구간범위%
   if (voltage >= BATT_VOLTAGE_MAX)
     return 100.0f;

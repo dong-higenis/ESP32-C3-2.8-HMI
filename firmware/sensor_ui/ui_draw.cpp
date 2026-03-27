@@ -16,15 +16,21 @@ typedef struct
 
 static canvas_t canvas = {nullptr, nullptr};
 
-static int uiGetFontIndex(char c);
-static void uiDrawCharScaled(TFT_eSprite* target, char c, int x, int y, float scale);
-static void uiDrawTextScaled(TFT_eSprite* target, const char* str, int x, int y, float scale);
-static float uiClampf(float value, float min_val, float max_val);
-static void uiDrawHud(int point_x, int point_y);
-static void uiDrawXBar(int offset_x);
-static void uiDrawYBar(int offset_y);
-static void uiDrawSensorValuesOnCanvas(float X, float Y);
+// 배터리 충전 잔량
+static int8_t   batt_percent;
+// 배터리 충전 여부
+static bool     batt_charging = false;
 
+static int      uiGetFontIndex(char c);
+static void     uiDrawCharScaled(TFT_eSprite* target, char c, int x, int y, float scale);
+static void     uiDrawTextScaled(TFT_eSprite* target, const char* str, int x, int y, float scale);
+static float    uiClampf(float value, float min_val, float max_val);
+static void     uiDrawHud(int point_x, int point_y);
+static void     uiDrawXBar(int offset_x);
+static void     uiDrawYBar(int offset_y);
+static void     uiDrawSensorValuesOnCanvas(float X, float Y);
+static uint16_t uiGetBatteryColor(float percent);
+static void     uiDrawBattery(float percent, bool is_charging);
 /**
  * @brief 프레임버퍼를 생성한다.
  */
@@ -145,9 +151,17 @@ void uiDraw(float sensor_x, float sensor_y)
   uiDrawYBar(draw_y - CIRCLE_CENTER_Y);
 
   uiDrawSensorValuesOnCanvas(sensor_x, sensor_y);
+  
+  uiDrawBattery(batt_percent, batt_charging);
 
   // 5. 최종 그림을 한번에 spi 전송한다.
   canvas.frambuffer->pushSprite(0, 0);
+}
+
+void uiSetBattPercent(int8_t percent, bool is_charging)
+{
+  batt_percent = percent;
+  batt_charging = is_charging;
 }
 
 /**
@@ -372,6 +386,87 @@ void uiDrawDashedLine(TFT_eSPI* target, int start_x, int start_y, int end_x, int
     is_time_to_draw = !is_time_to_draw;
   }
 }
+
+static uint16_t uiGetBatteryColor(float percent)
+{
+  if (percent <= BATT_COLOR_CRITICAL)  
+  {
+    return TFT_RED;
+  }
+  else if (percent <= BATT_COLOR_WARNING)
+  {
+    return TFT_ORANGE;
+  }
+  return TFT_GREEN;
+}
+
+static void uiDrawBattery(float percent, bool is_charging)
+{
+  if (canvas.frambuffer == nullptr)
+  {
+    return;
+  }
+
+  float pct = uiClampf(percent, 0.0f, 100.0f);
+  TFT_eSprite* fb = canvas.frambuffer;
+
+  // 1. 본체 외곽
+  fb->fillRoundRect(BATT_ICON_X, BATT_ICON_Y, BATT_ICON_W, BATT_ICON_H,
+                    BATT_ICON_RADIUS, TEXT_COLOR);
+  fb->fillRoundRect(BATT_ICON_X + BATT_ICON_BORDER, BATT_ICON_Y + BATT_ICON_BORDER,
+                    BATT_ICON_W - BATT_ICON_BORDER * 2, BATT_ICON_H - BATT_ICON_BORDER * 2,
+                    BATT_ICON_RADIUS - 1, BACKGROUND_COLOR);
+
+  // 2. 양극 돌기
+  int cap_x = BATT_ICON_X + BATT_ICON_W;
+  int cap_y = BATT_ICON_Y + (BATT_ICON_H - BATT_CAP_H) / 2;
+  fb->fillRoundRect(cap_x, cap_y, BATT_CAP_W, BATT_CAP_H, 1, TEXT_COLOR);
+
+  // 3. 내부 충전 바
+  int bar_x     = BATT_ICON_X + BATT_ICON_BORDER + BATT_BAR_PAD;
+  int bar_y     = BATT_ICON_Y + BATT_ICON_BORDER + BATT_BAR_PAD;
+  int bar_max_w = BATT_ICON_W - (BATT_ICON_BORDER + BATT_BAR_PAD) * 2;
+  int bar_h     = BATT_ICON_H - (BATT_ICON_BORDER + BATT_BAR_PAD) * 2;
+  int bar_w     = (int)((float)bar_max_w * pct / 100.0f);
+
+  uint16_t bar_color = uiGetBatteryColor(pct);
+
+  if (bar_w > 0)
+  {
+    fb->fillRoundRect(bar_x, bar_y, bar_w, bar_h, 1, bar_color);
+  }
+
+  // 4. 충전 중이면 번개 아이콘
+  if (is_charging)
+  {
+    // 배터리 아이콘 중심 기준
+    int cx = BATT_ICON_X + BATT_ICON_W / 2;
+    int ty = BATT_ICON_Y + BATT_ICON_BORDER + 1;          // top
+    int by = BATT_ICON_Y + BATT_ICON_H - BATT_ICON_BORDER - 1; // bottom
+    int my = (ty + by) / 2;  // middle
+
+    uint16_t bolt_color = TEXT_COLOR;
+
+    // 위 삼각: 상단 → 중간좌 → 중간우
+    fb->fillTriangle(cx + 1, ty, cx - 3, my, cx + 1, my, bolt_color);
+    // 아래 삼각: 중간좌 → 중간우 → 하단
+    fb->fillTriangle(cx - 1, my, cx + 3, my, cx - 1, by, bolt_color);
+  }
+
+  // 5. 퍼센트 텍스트
+if (!is_charging)
+{
+  char text_buf[8];
+  sprintf(text_buf, "%d%%", (int)pct);
+
+  fb->setFreeFont(NULL);
+  fb->setTextSize(1);
+  fb->setTextColor(TEXT_COLOR, BACKGROUND_COLOR);
+  fb->setCursor(BATT_TEXT_OFFSET_X, BATT_TEXT_OFFSET_Y + 4);
+  fb->print(text_buf);
+}
+}
+
 
 static int uiGetFontIndex(char c) 
 {

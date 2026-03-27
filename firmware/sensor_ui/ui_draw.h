@@ -26,5 +26,6 @@ void uiDrawDashedLine
     uint16_t color
 );
 
+void uiSetBattPercent(int8_t percent, bool is_charging);
 
 #endif

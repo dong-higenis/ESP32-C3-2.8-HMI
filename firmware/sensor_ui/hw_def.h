@@ -54,20 +54,22 @@
 /**
  * @brief 배터리 상수
  */
-#define BATT_VOLTAGE_MAX     4.20f   // 완충 전압 (V)
-#define BATT_VOLTAGE_NOM     3.70f   // 정격 전압 (V)
-#define BATT_VOLTAGE_LOW     3.40f   // 저전압 경고 임계값 (V)
-#define BATT_VOLTAGE_MIN     3.00f   // 방전 컷오프 전압 (V)
+#define BATT_VOLTAGE_MAX        4.096f  // 완충 전압 (V), 정확히는 회로상 VBUS가 최대 충전량이라고 유추 가능하기때문. 4.096은 VBUS 실측값
+#define BATT_VOLTAGE_NOM        3.76f
+#define BATT_VOLTAGE_LOW        3.37f
+#define BATT_VOLTAGE_MIN        3.00f
 
-// BAT ADC 분압 회로 (R44=126kΩ, R42=330kΩ)
-#define BATT_R1_BAT          126.0f  // 상단 저항 (kΩ)
-#define BATT_R2_GND          330.0f  // 하단 저항 (kΩ)
-#define BAT_DIVIDER_RATIO   ((BATT_R1_BAT + BATT_R2_GND) / BATT_R2_GND)  // 1.3818
+// BAT ADC 분압 회로 (R44, R42)
+#define BATT_R1_BAT             126.0f  // 상단 저항 (kΩ)
+#define BATT_R2_GND             330.0f  // 하단 저항 (kΩ)
+#define BAT_DIVIDER_RATIO       ((BATT_R1_BAT + BATT_R2_GND) / BATT_R2_GND)  // 1.3818
+
+#define BAT_CALIBRATION_OFFSET  0.06f  // 실측 기반 보정값 (V)
 
 /**
  * @brief SLEEP 모드
  */
-#define SLEEP_TIMEOUT_MS          60000
+#define SLEEP_TIMEOUT_MS        60000
 
 typedef enum
 {

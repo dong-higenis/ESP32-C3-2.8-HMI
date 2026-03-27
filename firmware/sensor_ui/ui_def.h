@@ -39,7 +39,22 @@
 
 #define Y_GUIDE_BAR_CENTER_X_VAL CIRCLE_CENTER_X + BIG_CIRCLE_RADIUS + 10 +((GUIDE_BAR_THICKNESS) / 2) // Y축 가이드 바 중심 좌표(x) 
 #define Y_GUIDE_BAR_CENTER_Y_VAL CIRCLE_CENTER_Y                                                       // X축 가이드 바 중심 좌표(y) 
+
+#define BATT_ICON_X          4      // 좌측 상단 X
+#define BATT_ICON_Y          4      // 좌측 상단 Y
+#define BATT_ICON_W          36     // 본체 가로 (외곽 포함)
+#define BATT_ICON_H          18     // 본체 세로 (외곽 포함)
+#define BATT_ICON_BORDER     2      // 외곽선 두께
+#define BATT_ICON_RADIUS     3      // 모서리 라운드
+#define BATT_CAP_W           4      // 양극 돌기 가로
+#define BATT_CAP_H           8      // 양극 돌기 세로
+#define BATT_BAR_PAD         3      // 내부 바와 외곽 사이 여백
+#define BATT_TEXT_OFFSET_X   (BATT_ICON_X + BATT_ICON_W + BATT_CAP_W + 4)  // % 텍스트 X
+#define BATT_TEXT_OFFSET_Y   (BATT_ICON_Y + 2)                            // % 텍스트 Y
  
+#define BATT_COLOR_CRITICAL  20     // 이 이하면 빨간색
+#define BATT_COLOR_WARNING   50     // 이 이하면 주황색
+
 // color (RG565)
 #define BACKGROUND_COLOR        TFT_WHITE
 #define TEXT_COLOR              TFT_BLACK
