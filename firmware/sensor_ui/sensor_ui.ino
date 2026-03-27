@@ -6,7 +6,10 @@
 
 #include "ui_draw.h" 
 
-/**
+#include <esp_sleep.h>     // Deep Sleep 
+#include <driver/gpio.h>   // 백라이트 hold용
+
+/** 
  * @note 업로드 환경
  * 
  *   esp32 by Espressif Systems - ver 2.0.10
@@ -14,6 +17,9 @@
 
 static void sensorTask(void);
 static void parseFrame(char *s);
+static Button_t readButton(void);
+static void enterDeepSleep(void);
+static void lcdSleep(TFT_eSPI &disp);
 
 /**
  * @brief s/w 설정
@@ -43,17 +49,29 @@ void setup()
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
+
+  // sleep -> wake-up시, 핀 hold 해제.
+  gpio_hold_dis((gpio_num_t)LCD_BACKLIGHT);
+  // hold_system
+  gpio_deep_sleep_hold_dis();
   
+  // 디버깅용으로 wake-up원인을 읽어옴 (사용 예정)
+  #if USE_TEST
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  #endif
+
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  pinMode(LCD_BACKLIGHT,OUTPUT); // 백라이트 ON
-  digitalWrite(LCD_BACKLIGHT,HIGH);
+  pinMode(LCD_BACKLIGHT, OUTPUT);
+  digitalWrite(LCD_BACKLIGHT, LOW);
 
   Serial1.begin(9600, SERIAL_8N1, SENSOR_RX, SENSOR_TX); // 센서
   
   display.begin();
   display.setRotation(1); // 가로 모드
+
+  digitalWrite(LCD_BACKLIGHT, HIGH); // 백 라이트 ON
 
   uiInit(&display); // display 객체 ui에게 넘겨주기
 }
@@ -85,13 +103,16 @@ void loop()
     uiDraw(filtered_x, filtered_y);
   }
 
-  static uint32_t pre_button;
+  // sleep 모드 타이머
+  static uint32_t pre_sleep;
 
+   // 버튼 타이머
+  static uint32_t pre_button;
+  
   if (millis() - pre_button > BUTTON_READ_PERIOD)
   {
     Button_t button = readButton();
 
-  #if USE_TEST
     switch (button)
     {
       case BTN_NONE:
@@ -99,12 +120,18 @@ void loop()
       
       default:
         Serial.printf("button [%d] pressed\n", button);
+
+        // 버튼을 누르면 sleep모드로의 전환을 늦춘다.
+        pre_sleep = millis();
         break;
     }
     
-  #endif
-
     pre_button = millis();
+  }
+
+  if (millis() - pre_sleep > SLEEP_TIMEOUT_MS)
+  {
+    enterDeepSleep();
   }
 }
 
@@ -171,7 +198,6 @@ static void parseFrame(char *s)
 static Button_t readButton(void)
 {
   uint32_t sensing_voltage = analogReadMilliVolts(BTN_PIN);  // 캘리브레이션된 mV 값
-
   // 분압 공식: mV = 3300 * R2 / (R1 + R2)
   float s1_mv = 0;
   float s2_mv = REFERENCE_MILLI_VOLTAGE * RESIST_S2_R2_VALUE / (RESISTOR_PULLUP_VALUE + RESIST_S2_R2_VALUE);
@@ -189,4 +215,72 @@ static Button_t readButton(void)
     return BTN_S4;
 
   return BTN_NONE;
+}
+
+/**
+ * @brief DEEP SLEEP 모드 진입
+ */
+static void enterDeepSleep(void)
+{
+  Serial.println("[SLEEP] Entering Deep-sleep...");
+  
+  // RESET 핀이 상시 HIGH 고정이므로 하드웨어 리셋 대신 소프트웨어로 IC를 끈다.
+  lcdSleep(display);
+  
+  // 센서와의 UART 통신을 종료한다.
+  Serial1.end();
+
+  // 백라이트 핀을 OUTPUT LOW로 설정하여 전류를 차단한다.
+  pinMode(LCD_BACKLIGHT, OUTPUT);       
+  digitalWrite(LCD_BACKLIGHT, LOW);   
+
+  // 백라이트 핀에 hold를 걸어 sleep 중에도 LOW 상태를 유지시킴을 선언한다.
+  gpio_hold_en((gpio_num_t)LCD_BACKLIGHT);   
+  // Deep Sleep 전용 hold 시스템을 활성화한다.
+  gpio_deep_sleep_hold_en();                 
+  
+  // LED를 끈다. (HIGH = OFF, 회로 극성에 따름)
+  digitalWrite(LED_PIN, HIGH);
+
+  // Serial 버퍼에 남은 데이터를 모두 전송한 뒤 종료한다.
+  Serial.flush();
+  
+  // BTN_PIN에 내부 풀업을 활성화하여 sleep 전환 중 LOW 글리치를 방지한다.
+  pinMode(BTN_PIN, INPUT_PULLUP);
+  delay(10);
+  
+  // BTN_PIN이 LOW가 되면 Deep Sleep에서 깨어나도록 wake-up 조건을   등록한다.
+  esp_deep_sleep_enable_gpio_wakeup(BIT(BTN_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
+  esp_deep_sleep_start();
+}   
+
+/**
+ * @brief 배터리 전압을 읽는 함수
+ */
+static float readBatteryVoltage(void)
+{
+  float voltage = (float)analogReadMilliVolts(BATT_CURRENT_VOLT) / 1000.0f * BAT_DIVIDER_RATIO;
+  
+  // 공식: 구간 하한% + (현재전압 - 구간하한V) / (구간상한V - 구간하한V) * 구간범위%
+  if (voltage >= BATT_VOLTAGE_MAX)
+    return 100.0f;
+  else if (voltage >= BATT_VOLTAGE_NOM)
+    return 50.0f + (voltage - BATT_VOLTAGE_NOM) / (BATT_VOLTAGE_MAX - BATT_VOLTAGE_NOM) * 50.0f;
+  else if (voltage >= BATT_VOLTAGE_LOW)
+    return 20.0f + (voltage - BATT_VOLTAGE_LOW) / (BATT_VOLTAGE_NOM - BATT_VOLTAGE_LOW) * 30.0f;
+  else if (voltage >= BATT_VOLTAGE_MIN)
+    return         (voltage - BATT_VOLTAGE_MIN) / (BATT_VOLTAGE_LOW - BATT_VOLTAGE_MIN) * 20.0f;
+  else
+    return 0.0f;
+}
+
+/**
+ * @brief LCD 리셋핀이 상시 HIGH인 관계로 직접 ILI9431을 OFF 시킨다.
+ */
+static void lcdSleep(TFT_eSPI &disp) 
+{
+  disp.writecommand(0x28);  // Display OFF
+  delay(20);
+  disp.writecommand(0x10);  // Sleep IN — 액정 전압 차단
+  delay(120);               // ILI9341 필수 대기 시간 
 }

@@ -27,13 +27,16 @@
 #define LCD_DC_PIN                7
 #define LCD_RESET_PIN            -1
 
-#define LCD_BACKLIGHT 0
-#define SENSOR_RX 19
-#define SENSOR_TX 18 
+#define LCD_BACKLIGHT             0
+#define SENSOR_RX                19
+#define SENSOR_TX                18 
 
-#define LED_PIN   10
+#define LED_PIN                  10
 
-#define BTN_PIN   2
+#define BTN_PIN                   2
+
+#define BATT_CHARGE_DETECT        1
+#define BATT_CURRENT_VOLT         3
 
 /**
  * @brief 버튼 분압 저항 
@@ -47,6 +50,24 @@
 #define RESIST_RELEASED_R2_VALUE  40000.0f
 
 #define REFERENCE_MILLI_VOLTAGE   3300.0f
+
+/**
+ * @brief 배터리 상수
+ */
+#define BATT_VOLTAGE_MAX     4.20f   // 완충 전압 (V)
+#define BATT_VOLTAGE_NOM     3.70f   // 정격 전압 (V)
+#define BATT_VOLTAGE_LOW     3.40f   // 저전압 경고 임계값 (V)
+#define BATT_VOLTAGE_MIN     3.00f   // 방전 컷오프 전압 (V)
+
+// BAT ADC 분압 회로 (R44=126kΩ, R42=330kΩ)
+#define BATT_R1_BAT          126.0f  // 상단 저항 (kΩ)
+#define BATT_R2_GND          330.0f  // 하단 저항 (kΩ)
+#define BAT_DIVIDER_RATIO   ((BATT_R1_BAT + BATT_R2_GND) / BATT_R2_GND)  // 1.3818
+
+/**
+ * @brief SLEEP 모드
+ */
+#define SLEEP_TIMEOUT_MS          60000
 
 typedef enum
 {
