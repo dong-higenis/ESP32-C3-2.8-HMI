@@ -41,8 +41,8 @@ static void uiFrameBufferInit(void)
     return;
   }
 
-  // 단색 조합으로 UI를 구성할 예정이므로, 8비트로 설정한다.
-  canvas.frambuffer->setColorDepth(16);
+  // 단색 조합으로 UI를 구성할 예정이므로, 8비트로 설정
+  canvas.frambuffer->setColorDepth(8);
 
   // 해상도에 맞는 크기의 프레임 버퍼를 생성한다.
   if (canvas.frambuffer->createSprite(UI_SCREEN_W, UI_SCREEN_H) == nullptr)
@@ -187,6 +187,7 @@ static void uiDrawSensorValuesOnCanvas(float X, float Y)
 
 static void uiDrawHud(int point_x, int point_y) 
 {
+  // 큰 원 그리기 
   canvas.frambuffer->fillCircle(CIRCLE_CENTER_X, CIRCLE_CENTER_Y, BIG_CIRCLE_RADIUS, OUT_LINE_COLOR_BLUE);
   canvas.frambuffer->fillCircle(CIRCLE_CENTER_X, CIRCLE_CENTER_Y, BIG_CIRCLE_RADIUS - 2, FILL_COLOR);
 
@@ -198,17 +199,19 @@ static void uiDrawHud(int point_x, int point_y)
   canvas.frambuffer->fillCircle(point_x, point_y, SMALL_CIRCLE_RADIUS, OUT_LINE_COLOR_BLUE);
   canvas.frambuffer->fillCircle(point_x, point_y, SMALL_CIRCLE_RADIUS - 2, BACKGROUND_COLOR);
 
+  // 작은 원이 지나가며 지울수있는 영역을 복원한다.
+
   // MIDDLE 테두리 복원 (두께 2px 예시)
-for (int i = 0; i < 2; i++)
-{
-  canvas.frambuffer->drawCircle
-  (
-    CIRCLE_CENTER_X,
-    CIRCLE_CENTER_Y,
-    MIDDLE_CIRCLE_RADIUS - i,
-    TEXT_COLOR
-  );
-}
+  for (int i = 0; i < 2; i++)
+  {
+    canvas.frambuffer->drawCircle
+    (
+      CIRCLE_CENTER_X,
+      CIRCLE_CENTER_Y,
+      MIDDLE_CIRCLE_RADIUS - i,
+      TEXT_COLOR
+    );
+  }
   // 중간 십자선 그리기
   uiDrawDashedLine(canvas.frambuffer, CIRCLE_CENTER_X - CROSS_LENGTH, CIRCLE_CENTER_Y, CIRCLE_CENTER_X + CROSS_LENGTH, CIRCLE_CENTER_Y, 6, 4, TEXT_COLOR);
   uiDrawDashedLine(canvas.frambuffer, CIRCLE_CENTER_X, CIRCLE_CENTER_Y - CROSS_LENGTH, CIRCLE_CENTER_X, CIRCLE_CENTER_Y + CROSS_LENGTH, 6, 4, TEXT_COLOR);
@@ -454,69 +457,105 @@ static void uiDrawBattery(float percent, bool is_charging)
   }
 
   // 5. 퍼센트 텍스트
-if (!is_charging)
-{
-  char text_buf[8];
-  sprintf(text_buf, "%d%%", (int)pct);
+  if (!is_charging)
+  {
+    char text_buf[8];
+    sprintf(text_buf, "%d%%", (int)pct);
 
-  fb->setFreeFont(NULL);
-  fb->setTextSize(1);
-  fb->setTextColor(TEXT_COLOR, BACKGROUND_COLOR);
-  fb->setCursor(BATT_TEXT_OFFSET_X, BATT_TEXT_OFFSET_Y + 4);
-  fb->print(text_buf);
-}
+    fb->setFreeFont(NULL);
+    fb->setTextSize(1);
+    fb->setTextColor(TEXT_COLOR, BACKGROUND_COLOR);
+    fb->setCursor(BATT_TEXT_OFFSET_X, BATT_TEXT_OFFSET_Y + 4);
+    fb->print(text_buf);
+  }
 }
 
 
 static int uiGetFontIndex(char c) 
 {
-  if (c == '+') return 0;
-  if (c == '-') return 1;
-  if (c == '.') return 2;
-  if (c == ',') return 3;
-  if (c >= '0' && c <= '9') return 4 + (c - '0');
-  if (c == 'X') return 14;
-  if (c == 'Y') return 15;
+  if (c == '+') 
+    return 0;
+  if (c == '-') 
+    return 1;
+  if (c == '.') 
+    return 2;
+  if (c == ',') 
+    return 3;
+  if (c >= '0' && c <= '9') 
+    return 4 + (c - '0');
+  if (c == 'X') 
+    return 14;
+  if (c == 'Y') 
+    return 15;
+  
   return -1;
 }
 
-static void uiDrawCharScaled(TFT_eSprite* target, char c, int x, int y, float scale) 
+/**
+ * @brief 5x7 비트맵 폰트를 원하는 배율로 확대하여 그린다.
+ * 
+ * @param target  그릴 대상 프레임버퍼 포인터
+ * @param c       출력할 문자
+ * @param x       문자 좌상단 X 좌표
+ * @param y       문자 좌상단 Y 좌표
+ * @param scale   확대 배율 (1.0 = 원본, 2.0 = 2배)
+ */
+static void uiDrawCharScaled(TFT_eSprite* target, char char_req, int x, int y, float scale) 
 {
-  int idx = uiGetFontIndex(c);
-
-  if (idx < 0) 
+  // 문자에 해당하는 폰트 배열 인덱스를 가져온다.
+  int index = uiGetFontIndex(char_req);
+  // 지원하지 않는 문자면 그리지 않는다.
+  if (index < 0) 
   {
     return; 
   }
 
-  const uint8_t* glyph = font_num5x7[idx];
-  for (int col = 0; col < 5; col++) 
+  // 5x7 비트맵 글리프 데이터를 가져온다.
+  const uint8_t* glyph = font_num5x7[index];
+
+  // 5개의 열을 순회한다.
+  for (int column = 0; column < 5; column++) 
   {
-    uint8_t bits = pgm_read_byte(&glyph[col]);
+    // 해당 열의 비트맵 데이터를 읽는다.
+    uint8_t bits = pgm_read_byte(&glyph[column]);
+
+    // 7개의 행을 순회한다.
     for (int row = 0; row < 7; row++) 
     {
+      // 해당 픽셀이 켜져 있는지 비트 마스크로 확인한다.
       if (bits & (1 << row)) 
       {
-        target->fillRect(x + (int)(col * scale), y + (int)(row * scale), (int)(scale + 0.5f), (int)(scale + 0.5f), TEXT_COLOR);
+        // scale 배율만큼 확대된 사각형으로 한 픽셀을 그린다.
+        target->fillRect(x + (int)(column * scale), y + (int)(row * scale), (int)(scale + 0.5f), (int)(scale + 0.5f), TEXT_COLOR);
       }
     }
   }
 }
 
+/**
+ * @brief 텍스트 출력시 스케일을 소수점까지 지원하는 함수
+ * @param target : framebuffer 포인터
+ *        str : string 배열
+ *        x   : 문자열 출력 시작 좌표 (x)
+ *        y   : 문자열 출력 시작 좌표 (y) 
+ */
 static void uiDrawTextScaled(TFT_eSprite* target, const char* str, int x, int y, float scale) 
 {
-  int cx = x;
+  int char_x = x;
   while (*str) 
   {
-    uiDrawCharScaled(target, *str, cx, y, scale);
-    cx += (int)(6 * scale);
+    uiDrawCharScaled(target, *str, char_x, y, scale);
+    char_x += (int)(6 * scale);
     str++;
   }
 }
 
 static float uiClampf(float value, float min_val, float max_val) 
 {
-  if (value < min_val) return min_val;
-  if (value > max_val) return max_val;
+  if (value < min_val) 
+    return min_val;
+  if (value > max_val) 
+    return max_val;
+
   return value;
 }

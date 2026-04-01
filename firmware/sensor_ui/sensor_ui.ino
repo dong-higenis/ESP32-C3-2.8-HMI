@@ -4,6 +4,8 @@
 
 #include "hw_def.h"
 
+#include "battery.h"
+
 #include "ui_draw.h" 
 
 #include <esp_sleep.h>     // Deep Sleep 
@@ -28,10 +30,12 @@ static void lcdSleep(TFT_eSPI &disp);
 
 #define UI_DRAW_PERIOD      30     // LCD UI draw 주기
 #define BUTTON_READ_PERIOD  30     // 버튼 read 주기
+#define BATT_UPDATE_PERIOD  100    // 배터리 상태 업데이트 주기
 #define UART_TX_PERIOD      100    // uart 송신 주기
 
-#define USE_TEST 1 // 테스트 케이스 사용 여부
-#define USE_SLEEP 0 // sleep 모드 사용 여부
+#define USE_TEST            1      // 테스트 케이스 사용 여부
+#define USE_SLEEP           1      // sleep 모드 사용 여부
+#define USE_DEBUG           1      // 테스트 printf 출력 여부
 
 char sensor_rx_buffer[RX_BUF_SIZE]; // uart로 받는 값 저장
 uint8_t sensor_rx_index = 0; // uart 버퍼 관리용 인덱스
@@ -56,18 +60,18 @@ void setup()
   // hold_system
   gpio_deep_sleep_hold_dis();
   
-  // 디버깅용으로 wake-up원인을 읽어옴 (사용 예정)
+  // 디버깅용으로 wake-up원인을 읽어옴 (사용 고려중)
   #if USE_TEST
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   #endif
 
   pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  digitalWrite(LED_PIN, HIGH);
 
   pinMode(LCD_BACKLIGHT, OUTPUT);
   digitalWrite(LCD_BACKLIGHT, LOW);
 
-  pinMode(BATT_CHARGE_DETECT, INPUT);
+  batteryInit();  // 배터리
 
   Serial1.begin(9600, SERIAL_8N1, SENSOR_RX, SENSOR_TX); // 센서
   
@@ -133,14 +137,25 @@ void loop()
 
   static uint32_t pre_bat;
 
-  if (millis() - pre_bat > 1000)
+  if (millis() - pre_bat > BATT_UPDATE_PERIOD)
   {
     pre_bat = millis();
 
-    int8_t percent = (int8_t)readBatteryVoltage();
-    bool charging = (digitalRead(BATT_CHARGE_DETECT) == LOW);
+    batteryUpdate();
 
-    uiSetBattPercent(percent, charging);
+    // 배터리 잔량이 없다면 강제 deep sleep모드로 진입
+    if (batteryIsDown())
+    {
+    #if USE_SLEEP
+      enterDeepSleep();
+    #endif
+    }
+    int8_t charge = batteryGetPercent();
+    uiSetBattPercent(charge, batteryIsCharging());
+    
+    #if USE_DEBUG
+      Serial.printf("percent : %d\n", charge);
+    #endif
   }
 
   if (millis() - pre_sleep > SLEEP_TIMEOUT_MS)
@@ -238,71 +253,88 @@ static Button_t readButton(void)
  */
 static void enterDeepSleep(void)
 {
-  Serial.println("[SLEEP] Entering Deep-sleep...");
-  
-  // RESET 핀이 상시 HIGH 고정이므로 하드웨어 리셋 대신 소프트웨어로 IC를 끈다.
+  #if USE_DEBUG
+    Serial.println("[SLEEP] Entering Deep-sleep...");
+    Serial.flush();
+  #endif
+
+  // 1). LCD 소프트웨어 종료
   lcdSleep(display);
-  
-  // 센서와의 UART 통신을 종료한다.
+
+  // 2). SPI 버스 종료
+  display.getSPIinstance().end();
+
+  // 3). 센서 UART 종료
   Serial1.end();
 
-  // 백라이트 핀을 OUTPUT LOW로 설정하여 전류를 차단한다.
-  pinMode(LCD_BACKLIGHT, OUTPUT);       
-  digitalWrite(LCD_BACKLIGHT, LOW);   
+  // 4). 디버그 UART 종료
+  Serial.end();
 
-  // 백라이트 핀에 hold를 걸어 sleep 중에도 LOW 상태를 유지시킴을 선언한다.
-  gpio_hold_en((gpio_num_t)LCD_BACKLIGHT);   
-  // Deep Sleep 전용 hold 시스템을 활성화한다.
-  gpio_deep_sleep_hold_en();                 
-  
-  // LED를 끈다. (HIGH = OFF, 회로 극성에 따름)
-  digitalWrite(LED_PIN, HIGH);
+  // 5). 백라이트 OFF + hold
+  gpio_set_direction((gpio_num_t)LCD_BACKLIGHT, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)LCD_BACKLIGHT, LOW);
+  gpio_hold_en((gpio_num_t)LCD_BACKLIGHT);
 
-  // Serial 버퍼에 남은 데이터를 모두 전송한 뒤 종료한다.
-  Serial.flush();
-  
-  // BTN_PIN에 내부 풀업을 활성화하여 sleep 전환 중 LOW 글리치를 방지한다.
-  pinMode(BTN_PIN, INPUT_PULLUP);
-  delay(10);
-  
-  // BTN_PIN이 LOW가 되면 Deep Sleep에서 깨어나도록 wake-up 조건을 등록한다.
+  // 6). LED OFF + hold (Active LOW면 HIGH)
+  gpio_set_direction((gpio_num_t)LED_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)LED_PIN, HIGH);
+  gpio_hold_en((gpio_num_t)LED_PIN);
+
+  // 7). SPI 핀 정리 + hold
+  gpio_set_direction((gpio_num_t)SPI_MOSI_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)SPI_MOSI_PIN, LOW);
+  gpio_hold_en((gpio_num_t)SPI_MOSI_PIN);
+
+  gpio_set_direction((gpio_num_t)SPI_SCLK_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)SPI_SCLK_PIN, LOW);
+  gpio_hold_en((gpio_num_t)SPI_SCLK_PIN);
+
+  gpio_set_direction((gpio_num_t)LCD_CS_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)LCD_CS_PIN, HIGH);   // CS deselect
+  gpio_hold_en((gpio_num_t)LCD_CS_PIN);
+
+  gpio_set_direction((gpio_num_t)LCD_DC_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)LCD_DC_PIN, LOW);
+  gpio_hold_en((gpio_num_t)LCD_DC_PIN);
+
+  // 8). SENSOR TX idle HIGH + hold
+  //     ※ gpio_reset_pin() 절대 호출하지 말 것 — 설정 초기화됨
+  gpio_set_direction((gpio_num_t)SENSOR_TX, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)SENSOR_TX, HIGH);    // UART idle = HIGH
+  gpio_hold_en((gpio_num_t)SENSOR_TX);
+
+  // 9). SENSOR_RX — pull-up으로 floating 방지
+  gpio_set_direction((gpio_num_t)SENSOR_RX, GPIO_MODE_INPUT);
+  gpio_pullup_en((gpio_num_t)SENSOR_RX);
+  gpio_pulldown_dis((gpio_num_t)SENSOR_RX);
+  // ※ RX는 hold 불필요 (입력 핀)
+
+  // 10). deep sleep hold 시스템 활성화 (모든 gpio_hold_en 이후에 1회만)
+  gpio_deep_sleep_hold_en();
+
+  // 11). wake-up 조건 등록
+  gpio_set_direction((gpio_num_t)BTN_PIN, GPIO_MODE_INPUT);
+  gpio_pullup_en((gpio_num_t)BTN_PIN);      // 내부 pull-up도 함께 활성화
+  gpio_pulldown_dis((gpio_num_t)BTN_PIN);
+  delay(50);                                 // 핀 안정화 대기 (10ms → 50ms)
   esp_deep_sleep_enable_gpio_wakeup(BIT(BTN_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
   esp_deep_sleep_start();
-}   
 
-/**
- * @brief 배터리 전압을 읽는 함수
- */
-static float readBatteryVoltage(void)
-{
-  // 분압비가 적용된 현재 ADC입력 전압에서 분압비를 역산하여 실제 배터리 전압을 추출해낸다.
-  int raw_mv = analogReadMilliVolts(BATT_CURRENT_VOLT);
-  float before_cal = (float)raw_mv / 1000.0f * BAT_DIVIDER_RATIO;
-  float voltage = before_cal + BAT_CALIBRATION_OFFSET;
-
-  Serial.printf("[BAT DEBUG] raw=%dmV, ratio=%.4f, before_cal=%.3fV, after_cal=%.3fV\n",
-                raw_mv, BAT_DIVIDER_RATIO, before_cal, voltage);
-
-  // 공식: 구간 하한% + (현재전압 - 구간하한V) / (구간상한V - 구간하한V) * 구간범위%
-  if (voltage >= BATT_VOLTAGE_MAX)
-    return 100.0f;
-  else if (voltage >= BATT_VOLTAGE_NOM)
-    return 50.0f + (voltage - BATT_VOLTAGE_NOM) / (BATT_VOLTAGE_MAX - BATT_VOLTAGE_NOM) * 50.0f;
-  else if (voltage >= BATT_VOLTAGE_LOW)
-    return 20.0f + (voltage - BATT_VOLTAGE_LOW) / (BATT_VOLTAGE_NOM - BATT_VOLTAGE_LOW) * 30.0f;
-  else if (voltage >= BATT_VOLTAGE_MIN)
-    return         (voltage - BATT_VOLTAGE_MIN) / (BATT_VOLTAGE_LOW - BATT_VOLTAGE_MIN) * 20.0f;
-  else
-    return 0.0f;
+  // 12). Deep Sleep 진입
+  esp_deep_sleep_start();
 }
-
 /**
  * @brief LCD 리셋핀이 상시 HIGH인 관계로 직접 ILI9431을 OFF 시킨다.
  */
 static void lcdSleep(TFT_eSPI &disp) 
 {
-  disp.writecommand(0x28);  // Display OFF
+  disp.startWrite();          // CS를 명시적으로 LOW로 잡기
+  disp.writecommand(0x28);    // Display OFF
+  disp.endWrite();
   delay(20);
-  disp.writecommand(0x10);  // Sleep IN — 액정 전압 차단
-  delay(120);               // ILI9341 필수 대기 시간 
+  
+  disp.startWrite();
+  disp.writecommand(0x10);    // Sleep IN
+  disp.endWrite();
+  delay(120);                 // 반드시 120ms 대기
 }
