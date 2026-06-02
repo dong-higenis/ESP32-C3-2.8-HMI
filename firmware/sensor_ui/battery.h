@@ -4,51 +4,45 @@
 #include <Arduino.h>
 #include "hw_def.h"
 
-// EMA 필터
-#define BAT_EMA_ALPHA             0.05f
+// ── OCV table column indices ──
+enum { VOLTAGE = 0, PERCENTAGE = 1, OCV_MAX = 2 };
 
-// 초기화 시 ADC 안정화 샘플 수
-#define BAT_INIT_SAMPLES          20
+// ── ADC / voltage calibration ──
+#define BAT_CHARGE_VOLTAGE_OFFSET  0.05f
+#define BAT_INIT_SAMPLES           8
 
-// // 히스테리시스
-// #define BAT_HYSTERESIS            1  // 최소 변화량 (%)
+// ── Shutdown threshold ──
+#define BAT_SHUTDOWN_VOLTAGE       3.0f
 
-// 충전 전압 오프셋 상수
-#define BAT_CHARGE_VOLTAGE_OFFSET 0.02f  
+// ── Voltage filter ──
+// ADC 전압을 평활화하는 EMA 계수
+// 작을수록 느리고 부드럽다 (0.02 = 차이의 2%씩 반영)
+#define BAT_VOLTAGE_EMA_ALPHA      0.03f
 
-// 시스템 작동 최저 전압
-#define BAT_SHUTDOWN_VOLTAGE      2.8f
+// ── SOC filter ──
+// 평활화된 전압 퍼센트를 SOC에 반영하는 EMA 계수
+// 전압 EMA 위에 이중으로 걸리므로 충분히 작아야 한다
+// 0.005 = 차이의 0.5%씩 반영, 100ms 주기 기준 초당 약 5%
+#define BAT_SOC_EMA_ALPHA          0.002f
 
-typedef enum
-{
-  VOLTAGE = 0,
-  PERCENTAGE,
-  OCV_MAX
-} ocv_t;
+// ── Display filter ──
+#define BAT_DISPLAY_EMA_ALPHA      0.05f
 
-/**
- * @brief 배터리 모듈 초기화
- */
-void batteryInit(void);
+// ── Charge pin debounce ──
+#define BAT_CHARGE_DEBOUNCE_MS     50
 
-/**
- * @brief 배터리 상태 업데이트
- */
-void batteryUpdate(void);
+// ── Init charge pin retry ──
+#define BAT_INIT_CHARGE_RETRY_COUNT  5
+#define BAT_INIT_CHARGE_RETRY_MS     10
 
-/**
- * @brief 현재 배터리 퍼센트 반환
- */
+#define BAT_INIT_VALUE               -1.0f
+
+// ── API ──
+void   batteryInit(void);
+void   batteryUpdate(void);
 int8_t batteryGetPercent(void);
+bool   batteryIsCharging(void);
+bool   batteryIsChargeDone(void);
+bool   batteryIsDown(void);
 
-/**
- * @brief 충전 중 여부 반환
- */
-bool batteryIsCharging(void);
-
-/**
- * @brief 배터리 잔량 없음 여부 반환
- */
-bool batteryIsDown(void);
-
-#endif
+#endif // BATTERY_H

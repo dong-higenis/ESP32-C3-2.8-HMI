@@ -88,8 +88,10 @@
 // #define M5STACK
 
 // For ST7789, ST7735, ILI9163 and GC9A01 ONLY, define the pixel width and height in portrait orientation
-#define TFT_WIDTH  LCD_WIDTH
+#if !defined(ILI9341_DRIVER) && !defined(ILI9341_2_DRIVER) && !defined(ILI9342_DRIVER)
 #define TFT_WIDTH  LCD_HEIGHT
+#define TFT_HEIGHT LCD_WIDTH
+#endif
 // #define TFT_WIDTH  80
 // #define TFT_WIDTH  128
 // #define TFT_WIDTH  172 // ST7789 172 x 320

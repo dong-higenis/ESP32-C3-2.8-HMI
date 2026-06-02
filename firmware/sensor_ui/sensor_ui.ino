@@ -22,6 +22,7 @@ static void parseFrame(char *s);
 static Button_t readButton(void);
 static void enterDeepSleep(void);
 static void lcdSleep(TFT_eSPI &disp);
+static void prepareLcdPinsForPowerOn(void);
 
 /**
  * @brief s/w 설정
@@ -32,8 +33,13 @@ static void lcdSleep(TFT_eSPI &disp);
 #define BUTTON_READ_PERIOD  30     // 버튼 read 주기
 #define BATT_UPDATE_PERIOD  100    // 배터리 상태 업데이트 주기
 #define UART_TX_PERIOD      100    // uart 송신 주기
+#define LED_TOGGLE_PERIOD   500    // LED 토글 주기
+
+#define ILI9341_POWER_OFF_RESET_MS 125
+#define ILI9341_POWERON_STABLE_MS 150
 
 #define USE_TEST            1      // 테스트 케이스 사용 여부
+#define USE_ANIM            1      // 센서 UI EMA필터 사용 여부
 #define USE_SLEEP           1      // sleep 모드 사용 여부
 #define USE_DEBUG           1      // 테스트 printf 출력 여부
 
@@ -50,13 +56,36 @@ float sensor_y = 0.0f;
 
 TFT_eSPI display = TFT_eSPI();
 
+static void prepareLcdPinsForPowerOn(void)
+{
+#if SPI_MOSI_PIN >= 0
+  pinMode(SPI_MOSI_PIN, OUTPUT);
+  digitalWrite(SPI_MOSI_PIN, LOW);
+#endif
+
+#if SPI_SCLK_PIN >= 0
+  pinMode(SPI_SCLK_PIN, OUTPUT);
+  digitalWrite(SPI_SCLK_PIN, LOW);
+#endif
+
+#if LCD_CS_PIN >= 0
+  pinMode(LCD_CS_PIN, OUTPUT);
+  digitalWrite(LCD_CS_PIN, HIGH);
+#endif
+
+#if LCD_DC_PIN >= 0
+  pinMode(LCD_DC_PIN, OUTPUT);
+  digitalWrite(LCD_DC_PIN, HIGH);
+#endif
+}
+
 void setup() 
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
-
+  
   // sleep -> wake-up시, 핀 hold 해제.
-  gpio_hold_dis((gpio_num_t)LCD_BACKLIGHT);
+  gpio_hold_dis((gpio_num_t)LCD_POWER_ON);
   // hold_system
   gpio_deep_sleep_hold_dis();
   
@@ -64,21 +93,28 @@ void setup()
   #if USE_TEST
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   #endif
-
+  
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
 
-  pinMode(LCD_BACKLIGHT, OUTPUT);
-  digitalWrite(LCD_BACKLIGHT, LOW);
+  prepareLcdPinsForPowerOn();
 
+  pinMode(LCD_POWER_ON, OUTPUT);
+  digitalWrite(LCD_POWER_ON, LOW);
+
+  delay(ILI9341_POWER_OFF_RESET_MS);
+
+  digitalWrite(LCD_POWER_ON, HIGH);
+  delay(ILI9341_POWERON_STABLE_MS);
+  
   batteryInit();  // 배터리
 
   Serial1.begin(9600, SERIAL_8N1, SENSOR_RX, SENSOR_TX); // 센서
   
   display.begin();
+
   display.setRotation(1); // 가로 모드
 
-  digitalWrite(LCD_BACKLIGHT, HIGH); // 백 라이트 ON
   uiInit(&display); // display 객체 ui에게 넘겨주기
 }
 
@@ -91,7 +127,7 @@ void loop()
 
   const float alpha = 0.8f; // 낮을수록 부드럽지만 반응 속도가 느리다.
 
-#if USE_TEST
+#if USE_ANIM
   // EMA Low-pass filter
   filtered_x += alpha * (sensor_x - filtered_x);
   filtered_y += alpha * (sensor_y - filtered_y);
@@ -156,6 +192,16 @@ void loop()
     #if USE_DEBUG
       Serial.printf("percent : %d\n", charge);
     #endif
+  }
+
+  static uint32_t pre_led;
+  static bool current_led;
+  
+  if (millis() - pre_led > LED_TOGGLE_PERIOD)
+  {
+    pre_led = millis();
+    current_led = !current_led;
+    digitalWrite(LED_PIN, current_led);
   }
 
   if (millis() - pre_sleep > SLEEP_TIMEOUT_MS)
@@ -257,84 +303,79 @@ static void enterDeepSleep(void)
     Serial.println("[SLEEP] Entering Deep-sleep...");
     Serial.flush();
   #endif
-
-  // 1). LCD 소프트웨어 종료
+  
+  // 1). LCD를 소프트웨어로 끈다.
   lcdSleep(display);
 
-  // 2). SPI 버스 종료
-  display.getSPIinstance().end();
+  // 2). SPI 버스를 종료한다.
+  gpio_set_direction((gpio_num_t)SPI_MOSI_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)SPI_MOSI_PIN, 0);
+  gpio_set_direction((gpio_num_t)SPI_SCLK_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)SPI_SCLK_PIN, 0);
+  gpio_set_direction((gpio_num_t)LCD_CS_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)LCD_CS_PIN, 1);
+  gpio_set_direction((gpio_num_t)LCD_DC_PIN, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)LCD_DC_PIN, 0);
 
-  // 3). 센서 UART 종료
+  // LCD 전원 OFF
+  gpio_set_direction((gpio_num_t)LCD_POWER_ON, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)LCD_POWER_ON, 0);
+  gpio_hold_en((gpio_num_t)LCD_POWER_ON);
+
+  // 3). 센서 UART를 종료한다.
   Serial1.end();
 
-  // 4). 디버그 UART 종료
+  // 4). 디버그 UART를 종료한다.
   Serial.end();
 
-  // 5). 백라이트 OFF + hold
-  gpio_set_direction((gpio_num_t)LCD_BACKLIGHT, GPIO_MODE_OUTPUT);
-  gpio_set_level((gpio_num_t)LCD_BACKLIGHT, LOW);
-  gpio_hold_en((gpio_num_t)LCD_BACKLIGHT);
-
-  // 6). LED OFF + hold (Active LOW면 HIGH)
-  gpio_set_direction((gpio_num_t)LED_PIN, GPIO_MODE_OUTPUT);
-  gpio_set_level((gpio_num_t)LED_PIN, HIGH);
-  gpio_hold_en((gpio_num_t)LED_PIN);
-
-  // 7). SPI 핀 정리 + hold
-  gpio_set_direction((gpio_num_t)SPI_MOSI_PIN, GPIO_MODE_OUTPUT);
-  gpio_set_level((gpio_num_t)SPI_MOSI_PIN, LOW);
-  gpio_hold_en((gpio_num_t)SPI_MOSI_PIN);
-
-  gpio_set_direction((gpio_num_t)SPI_SCLK_PIN, GPIO_MODE_OUTPUT);
-  gpio_set_level((gpio_num_t)SPI_SCLK_PIN, LOW);
-  gpio_hold_en((gpio_num_t)SPI_SCLK_PIN);
-
-  gpio_set_direction((gpio_num_t)LCD_CS_PIN, GPIO_MODE_OUTPUT);
-  gpio_set_level((gpio_num_t)LCD_CS_PIN, HIGH);   // CS deselect
-  gpio_hold_en((gpio_num_t)LCD_CS_PIN);
-
-  gpio_set_direction((gpio_num_t)LCD_DC_PIN, GPIO_MODE_OUTPUT);
-  gpio_set_level((gpio_num_t)LCD_DC_PIN, LOW);
-  gpio_hold_en((gpio_num_t)LCD_DC_PIN);
-
-  // 8). SENSOR TX idle HIGH + hold
-  //     ※ gpio_reset_pin() 절대 호출하지 말 것 — 설정 초기화됨
-  gpio_set_direction((gpio_num_t)SENSOR_TX, GPIO_MODE_OUTPUT);
-  gpio_set_level((gpio_num_t)SENSOR_TX, HIGH);    // UART idle = HIGH
-  gpio_hold_en((gpio_num_t)SENSOR_TX);
-
-  // 9). SENSOR_RX — pull-up으로 floating 방지
-  gpio_set_direction((gpio_num_t)SENSOR_RX, GPIO_MODE_INPUT);
-  gpio_pullup_en((gpio_num_t)SENSOR_RX);
-  gpio_pulldown_dis((gpio_num_t)SENSOR_RX);
-  // ※ RX는 hold 불필요 (입력 핀)
-
-  // 10). deep sleep hold 시스템 활성화 (모든 gpio_hold_en 이후에 1회만)
+  // 5). 백라이트를 끄고 hold를 건다.
+  gpio_set_direction((gpio_num_t)LCD_POWER_ON, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)LCD_POWER_ON, 0);
+  gpio_hold_en((gpio_num_t)LCD_POWER_ON);
   gpio_deep_sleep_hold_en();
 
-  // 11). wake-up 조건 등록
-  gpio_set_direction((gpio_num_t)BTN_PIN, GPIO_MODE_INPUT);
-  gpio_pullup_en((gpio_num_t)BTN_PIN);      // 내부 pull-up도 함께 활성화
-  gpio_pulldown_dis((gpio_num_t)BTN_PIN);
-  delay(50);                                 // 핀 안정화 대기 (10ms → 50ms)
-  esp_deep_sleep_enable_gpio_wakeup(BIT(BTN_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
-  esp_deep_sleep_start();
+  // 6). LED를 끄고 hold를 건다.
+  digitalWrite(LED_PIN, HIGH);
+  gpio_hold_en((gpio_num_t)LED_PIN);
 
-  // 12). Deep Sleep 진입
+  // 7). 누설 전류 방지를 위해 미사용 핀을 정리한다.
+  //     SPI 핀, 센서 UART 핀 등을 INPUT으로 설정하여 floating을 방지한다.
+  gpio_reset_pin((gpio_num_t)SENSOR_RX);
+  gpio_reset_pin((gpio_num_t)SENSOR_TX);
+  
+  gpio_set_direction((gpio_num_t)BTN_PIN, GPIO_MODE_INPUT);
+  gpio_pulldown_dis((gpio_num_t)BTN_PIN);
+  gpio_pullup_en((gpio_num_t)BTN_PIN);
+
+  gpio_set_direction((gpio_num_t)FLASH_BOOT_OPTION, GPIO_MODE_OUTPUT);
+  gpio_set_level((gpio_num_t)FLASH_BOOT_OPTION, HIGH);
+  gpio_hold_en((gpio_num_t)FLASH_BOOT_OPTION);
+
+  gpio_deep_sleep_hold_en();
+
+  while (gpio_get_level((gpio_num_t)BTN_PIN) == 0)
+  {
+    delay(10);
+  }
+  delay(200);  // 디바운스
+
+  // 8). Deep Sleep 전용 hold 시스템을 활성화한다.
+  gpio_deep_sleep_hold_en();                 
+
+  // 9). wake-up 조건을 등록한다.
+  gpio_deep_sleep_wakeup_enable((gpio_num_t)BTN_PIN, GPIO_INTR_LOW_LEVEL);
+  esp_sleep_enable_gpio_wakeup();
+  
+  // 10). Deep Sleep 진입
   esp_deep_sleep_start();
-}
+}   
 /**
  * @brief LCD 리셋핀이 상시 HIGH인 관계로 직접 ILI9431을 OFF 시킨다.
  */
 static void lcdSleep(TFT_eSPI &disp) 
 {
-  disp.startWrite();          // CS를 명시적으로 LOW로 잡기
-  disp.writecommand(0x28);    // Display OFF
-  disp.endWrite();
+  disp.writecommand(0x28);  // Display OFF
   delay(20);
-  
-  disp.startWrite();
-  disp.writecommand(0x10);    // Sleep IN
-  disp.endWrite();
-  delay(120);                 // 반드시 120ms 대기
+  disp.writecommand(0x10);  // Sleep IN — 액정 전압 차단
+  delay(120);               // ILI9341 필수 대기 시간 
 }

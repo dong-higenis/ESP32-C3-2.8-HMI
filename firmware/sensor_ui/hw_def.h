@@ -23,20 +23,26 @@
 #define SPI_MISO_PIN             -1
 #define SPI_MOSI_PIN              4
 #define SPI_SCLK_PIN              6
-#define LCD_CS_PIN                5
+
+#define LCD_CS_PIN               10
 #define LCD_DC_PIN                7
 #define LCD_RESET_PIN            -1
-
+#define LCD_POWER_ON              0 
 #define LCD_BACKLIGHT             0
+
 #define SENSOR_RX                19
 #define SENSOR_TX                18 
 
-#define LED_PIN                  10
+#define LED_PIN                   8
 
 #define BTN_PIN                   2
 
-#define BATT_CHARGE_DETECT        1
+#define BATT_CHARGE_DETECT        1 // Active Low
+#define BATT_CHARGE_DONE          5 
+
 #define BATT_CURRENT_VOLT         3
+
+#define FLASH_BOOT_OPTION         8  
 
 /**
  * @brief 버튼 분압 저항 
@@ -56,9 +62,9 @@
  */
 
 // BAT ADC 분압 회로 (R44, R42)
-#define BATT_R1_BAT             200.0f  // 상단 저항 (kΩ)
-#define BATT_R2_GND             330.0f  // 하단 저항 (kΩ)
-#define BAT_DIVIDER_RATIO       ((BATT_R1_BAT + BATT_R2_GND) / BATT_R2_GND)  // 1.3818
+#define BATT_R1_BAT             180.0f  // 상단 저항 (kΩ)
+#define BATT_R2_GND             220.0f  // 하단 저항 (kΩ)
+#define BAT_DIVIDER_RATIO       ((BATT_R1_BAT + BATT_R2_GND) / BATT_R2_GND)  // 1.81..
 
 #define BAT_CALIBRATION_OFFSET  0.00f  // 실측 기반 보정값 (V)
 
